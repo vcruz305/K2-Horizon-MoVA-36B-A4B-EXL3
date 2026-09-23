@@ -1,4 +1,4 @@
-"""Fail-closed validation for this single pinned 6.50bpw pack and BF16 overlay."""
+"""Fail-closed validation for six pinned K2 Horizon EXL3 packs and their BF16 overlay."""
 from __future__ import annotations
 
 import argparse
@@ -8,12 +8,43 @@ import struct
 from pathlib import Path
 
 EXPECTED_OVERLAY_SHA256 = "8038de808fb396f4d5d337d373435523f167bfbc8558b5a6af09c1900408f53c"
-SHARDS = {
-    "model-00001-of-00004.safetensors": 7941608324,
-    "model-00002-of-00004.safetensors": 7992599868,
-    "model-00003-of-00004.safetensors": 8348082807,
-    "model-00004-of-00004.safetensors": 7005754812,
+MODEL_REV = "db645b888e6e05e89e7922230e0c1d526f87615c"
+PACK_SHARDS = {
+    "8.00": {
+        "model-00001-of-00005.safetensors": 7944229765,
+        "model-00002-of-00005.safetensors": 8002430284,
+        "model-00003-of-00005.safetensors": 7989159179,
+        "model-00004-of-00005.safetensors": 7993582918,
+        "model-00005-of-00005.safetensors": 6089603087,
+        "model-routing-bias.safetensors": 39784,
+    },
+    "6.50": {
+        "model-00001-of-00004.safetensors": 7941611589,
+        "model-00002-of-00004.safetensors": 7992603956,
+        "model-00003-of-00004.safetensors": 8348087304,
+        "model-00004-of-00004.safetensors": 7005761354,
+    },
+    "5.00": {
+        "model-00001-of-00003.safetensors": 7828889640,
+        "model-00002-of-00003.safetensors": 8481780968,
+        "model-00003-of-00003.safetensors": 8198023024,
+    },
+    "4.00": {
+        "model-00001-of-00003.safetensors": 8378769476,
+        "model-00002-of-00003.safetensors": 8490277873,
+        "model-00003-of-00003.safetensors": 3120022441,
+    },
+    "2.50": {
+        "model-00001-of-00002.safetensors": 8468875257,
+        "model-00002-of-00002.safetensors": 4740701376,
+    },
+    "2.00": {
+        "model-00001-of-00002.safetensors": 8441052506,
+        "model-00002-of-00002.safetensors": 2508719654,
+    },
 }
+# Backward-compatible test alias for the original default pack.
+SHARDS = PACK_SHARDS["6.50"]
 ARCH = "K2HorizonForCausalLM"
 
 
@@ -47,8 +78,10 @@ def verify_overlay(path: Path) -> None:
 
 
 def verify_model(path: Path) -> None:
-    if not path.is_dir() or path.name != "6.50bpw":
-        raise ValueError("Expected the 6.50bpw quant folder")
+    pack = path.name.removesuffix("bpw") if path.name.endswith("bpw") else ""
+    shards = PACK_SHARDS.get(pack)
+    if not path.is_dir() or shards is None:
+        raise ValueError(f"Expected one of the pinned quant folders: {', '.join(PACK_SHARDS)}")
     for name in ("config.json", "model.safetensors.index.json", "quantization_config.json", "tokenizer.json", "chat_template.jinja"):
         if not (path / name).is_file():
             raise ValueError(f"Missing model metadata: {name}")
@@ -57,13 +90,20 @@ def verify_model(path: Path) -> None:
         raise ValueError(f"Wrong model architecture: {config.get('architectures')}")
     index = json.loads((path / "model.safetensors.index.json").read_text(encoding="utf-8"))
     referenced = set(index["weight_map"].values())
-    if not index["weight_map"] or referenced != set(SHARDS):
-        raise ValueError("Wrong/incomplete four-shard safetensors index")
-    for name, size in SHARDS.items():
+    if not index["weight_map"] or referenced != set(shards):
+        raise ValueError("Wrong/incomplete safetensors index")
+    for name, size in shards.items():
         shard = path / name
         if not shard.is_file() or shard.stat().st_size != size:
             raise ValueError(f"Missing/truncated/incorrect shard: {name}")
-    print("Verified K2 config, four index-referenced shards and byte sizes")
+    expected_aliases = {
+        f"model.layers.{layer}.{part}.e_score_correction_bias"
+        for layer in range(3, 48)
+        for part in ("self_attn.v_router", "mlp.gate")
+    }
+    if not expected_aliases <= set(index["weight_map"]):
+        raise ValueError("Incomplete routing-bias index for the pinned pack")
+    print(f"Verified {pack}bpw K2 config, {len(shards)} index-referenced files, byte sizes and 90 bias aliases")
 
 
 def main() -> None:
