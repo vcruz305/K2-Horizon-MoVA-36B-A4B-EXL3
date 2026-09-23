@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+models/
+biases/
+*.safetensors
+*.manifest.json
+config.yml
+sixcat-speed.json
+*.log
