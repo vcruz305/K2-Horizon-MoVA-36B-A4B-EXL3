@@ -1,6 +1,6 @@
 # K2-Horizon-MoVA-36B-A4B · EXL3
 
-Run any of the six [K2-Horizon-MoVA-36B-A4B EXL3 packs](https://huggingface.co/vcruz305/K2-Horizon-MoVA-36B-A4B-EXL3) on a compatible Linux NVIDIA GPU. Select a bitrate with `PACK`; the scripts download only that folder and serve it through pinned [TabbyAPI](https://github.com/theroyallab/tabbyAPI) and the [K2-capable ExLlamaV3 fork](https://github.com/vcruz305/exllamav3). This GitHub repository is a recipe, **not** a weight mirror. Only the older 6.50bpw pack has a measured serving result here; the other packs and GPUs require their own runtime checks. Stock upstream ExLlamaV3 does not yet register `K2HorizonForCausalLM`.
+Run any of the six [K2-Horizon-MoVA-36B-A4B EXL3 packs](https://huggingface.co/vcruz305/K2-Horizon-MoVA-36B-A4B-EXL3) on a compatible Linux NVIDIA GPU. Select a bitrate with `PACK`; the scripts download only that folder and serve it through pinned [TabbyAPI](https://github.com/theroyallab/tabbyAPI) and the [K2-capable ExLlamaV3 fork](https://github.com/vcruz305/exllamav3). This GitHub repository is a recipe, **not** a weight mirror. Measured speeds so far: 8.00bpw on one RTX PRO 6000 Blackwell (development runtime, not these scripts) and the older 6.50bpw revision on one GB10; other packs and GPUs require their own runtime checks. Stock upstream ExLlamaV3 does not yet register `K2HorizonForCausalLM`.
 
 ## Choose a pack
 
@@ -59,7 +59,72 @@ curl --fail --silent http://127.0.0.1:5001/v1/chat/completions \
 
 Confirm `/v1/models` advertises your pack's ID and the completion is nonempty; this is a smoke, not a quality evaluation. For normal reasoning, IFM recommends `reasoning_effort: high`, `temperature: 1.0`, `top_p: 0.95`. The pack must fit your actual available GPU memory; the table is not a promise that every card can serve every pack.
 
-## Historical measured speed — 6.50bpw on one GB10 only
+## Measured speed
+
+Each result is tied to one GPU, pack, runtime and set of server settings. Neither predicts another GPU, another pack, or this recipe's TabbyAPI scripts.
+
+### 8.00bpw on one RTX PRO 6000 Blackwell (96 GB)
+
+| Setting | Value |
+|---|---|
+| GPU | 1× NVIDIA RTX PRO 6000 Blackwell Server Edition, 96 GB, driver 580.178.04 |
+| Software | PyTorch 2.13.0+cu129, CUDA 12.9 |
+| Pack | `8.00bpw` at revision `db645b888e6e05e89e7922230e0c1d526f87615c` (the pin above); all 18 files hash-checked against the Hub |
+| Runtime | Development ExLlamaV3 build with K2 serving changes that are not yet in the pinned fork, behind a native OpenAI-compatible `/v1` server. **Not** this recipe's TabbyAPI scripts, which have not been speed-tested on this GPU. |
+| Server | 65,536-token cache, up to 16 active requests, no draft model, no offload; 48,295 MiB GPU memory in use after load |
+| Benchmark | [SixCat](https://github.com/vcruz305/sixcat-eval) v0.7.0 `sixcat speed`, default suite: decode, balanced and prefill profiles. Each profile runs a concurrency curve (C = 1, 2, 4, 8 with 4, 4, 8, 16 requests), then a 32-request confirmation at the selected concurrency. One warmup request precedes each curve and each confirmation. |
+| Sampling | SixCat `strict` policy: `temperature=0`, thinking off, seed 1. Every request generated exactly its `max_tokens`. |
+| Run | 2026-09-22, 8:32–8:51 PM PDT; 192/192 measured requests succeeded |
+
+SixCat found no server-side timing on this route, so every number is client-observed over streaming. **Aggregate** is total output tokens ÷ wall time for the level, including prefill and queueing. **Per-stream decode** is one request's tokens after its first token ÷ the time after its first token. **TTFT** includes any wait for a free slot.
+
+SixCat summary:
+
+| Metric | Result |
+|---|---:|
+| Decode, single stream (C=1): p50 / max | **30.0 / 30.1 tok/s** |
+| Prefill, single stream (C=1, ≈2,470-token prompt): p50 | **2,763 tok/s** |
+| Balanced serving, aggregate output at C=8 | **46.0 tok/s** |
+| Time to first token, balanced: C=1 p50 / C=8 p50 / C=8 p95 | 686 / 4,730 / 4,740 ms |
+| Highest usable concurrency tested | 8 (100% success at every level) |
+
+Concurrency curve (prompt → output tokens per request):
+
+| Profile | C | OK | Aggregate output tok/s | Per-stream decode p50 tok/s | TTFT p50 |
+|---|---:|---:|---:|---:|---:|
+| Decode (≈120 → 512) | 1 | 4/4 | 29.06 | 29.97 | 580 ms |
+| | 2 | 4/4 | 21.34 | 10.86 | 906 ms |
+| | 4 | 8/8 | 30.04 | 7.70 | 1,783 ms |
+| | 8 | 16/16 | 42.85 | 5.57 | 4,110 ms |
+| Balanced (≈380 → 128) | 1 | 4/4 | 26.16 | 30.23 | 686 ms |
+| | 2 | 4/4 | 20.50 | 11.13 | 1,074 ms |
+| | 4 | 8/8 | 30.75 | 8.81 | 2,728 ms |
+| | 8 | 16/16 | 45.24 | 7.19 | 5,342 ms |
+| Prefill (≈2,470 → 32) | 1 | 4/4 | 16.63 | 30.14 | 894 ms |
+| | 2 | 4/4 | 14.05 | 9.96 | 1,377 ms |
+| | 4 | 8/8 | 20.00 | 10.85 | 3,549 ms |
+| | 8 | 16/16 | 24.12 | 6.96 | 6,138 ms |
+
+Confirmation at C=8, 32 requests per profile:
+
+| Profile | OK | Aggregate output tok/s | Per-stream decode p50 / p95 tok/s | TTFT p50 / p95 | End-to-end p50 |
+|---|---:|---:|---:|---:|---:|
+| Decode | 32/32 | 48.67 | 6.24 / 7.39 | 4,543 / 4,598 ms | 84.8 s |
+| Balanced | 32/32 | 46.00 | 7.25 / 7.44 | 4,730 / 4,740 ms | 22.2 s |
+| Prefill | 32/32 | 24.17 | 6.98 / 6.99 | 6,150 / 6,161 ms | 10.6 s |
+
+Concurrency scales poorly in this build: C=2 gives less total output than C=1, C=4 is only 3–20% above C=1, and C=8 reaches about 1.5–1.8× the C=1 total while each stream slows to 5.6–7.3 tok/s. p99 is not reported because no level has 100 or more requests.
+
+Command used. Everything not shown is a v0.7.0 default (`--profile all --candidates 1,2,4,8 --samples 32 --policy strict --thinking off --seed 1`). The time caps are raised because at about 30 tok/s the default 600-second suite budget runs out during the decode profile, and v0.7.0 then writes no results file.
+
+```bash
+python -m sixcat speed \
+  --base-url http://127.0.0.1:<port>/v1 --model <served-model-id> \
+  --max-seconds 7200 --curve-seconds 1500 \
+  --out sixcat-speed-8.00.json
+```
+
+### Older 6.50bpw revision on one GB10 (historical)
 
 A **previous** Sixcat v0.7.0 unscored speed receipt on one GB10 Spark2 used the **older** `6.50bpw` revision `c88277ce7f6b90b723f79b5188c0f1b951732099`, TabbyAPI, fixed C=1, strict `temperature=0`, thinking off, seed 1, warmup and 8/8 successful confirmations per profile:
 
@@ -69,7 +134,11 @@ A **previous** Sixcat v0.7.0 unscored speed receipt on one GB10 Spark2 used the 
 | Balanced aggregate output (256 words / 128 output max) | **17.65341972782038 tok/s** |
 | Prefill effective prompt p50 (2048 words / 32 output max) | **1394.911645461034 tok/s** |
 
-These are **not** universal GPU speeds, measurements of the other five packs, or benchmarks of the newer six-pack HF revision and these published scripts. The stream exposed no native server-side timing. The original local receipt contains internal paths and a full chat template, so it is not published here. For a *new* result for your selected pack, run the same fixed-C1 Sixcat protocol after confirming the model ID:
+These are **not** universal GPU speeds, measurements of the other five packs, or benchmarks of the newer six-pack HF revision and these published scripts. The stream exposed no native server-side timing. The original local receipt contains internal paths and a full chat template, so it is not published here.
+
+### Measure your own pack
+
+For a *new* result for your selected pack, run the same fixed-C1 Sixcat protocol after confirming the model ID:
 
 ```bash
 git clone https://github.com/vcruz305/sixcat-eval.git "${WORK_DIR:-$HOME/k2-horizon-exl3}/sixcat-eval"
@@ -81,7 +150,7 @@ git -C "${WORK_DIR:-$HOME/k2-horizon-exl3}/sixcat-eval" checkout --detach v0.7.0
   --policy strict --thinking off --out "${WORK_DIR:-$HOME/k2-horizon-exl3}/sixcat-speed-${PACK}.json"
 ```
 
-The 900-second cap is not an observed runtime. Record actual GPU, CUDA/PyTorch, pack/revision, overlay digest, policy, successes/failures and client-versus-server metric semantics before making comparisons.
+The recipe's server runs one request at a time, so keep `--concurrency 1` against it; the concurrency curve above needs a server that batches. The 900-second cap is not an observed runtime. Record actual GPU, CUDA/PyTorch, pack/revision, overlay digest, policy, successes/failures and client-versus-server metric semantics before making comparisons.
 
 ## Troubleshooting
 

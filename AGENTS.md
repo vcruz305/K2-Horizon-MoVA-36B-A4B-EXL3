@@ -1,7 +1,7 @@
 # AGENTS.md — K2-Horizon-MoVA-36B-A4B-EXL3
 
 ## Purpose
-This is a GPU-agnostic, Linux/NVIDIA TabbyAPI + ExLlamaV3 recipe for Victor Cruz's K2-Horizon-MoVA-36B-A4B 6.50bpw EXL3 pack. It is not a weight mirror or a DGX Spark-only recipe. The only measured host to date is one GB10; never extrapolate its speed to other GPUs.
+This is a GPU-agnostic, Linux/NVIDIA TabbyAPI + ExLlamaV3 recipe for Victor Cruz's K2-Horizon-MoVA-36B-A4B 6.50bpw EXL3 pack. It is not a weight mirror or a DGX Spark-only recipe. Measured hosts to date: one GB10 (older 6.50bpw revision via TabbyAPI) and one RTX PRO 6000 Blackwell (8.00bpw via a development ExLlamaV3 build and native `/v1` server, not these scripts). Never extrapolate either result to other GPUs, packs or runtimes.
 
 ## Source-of-truth pins
 - Quant: `vcruz305/K2-Horizon-MoVA-36B-A4B-EXL3`, revision `c88277ce7f6b90b723f79b5188c0f1b951732099`, folder `6.50bpw/` only. Four shards total `31,288,045,811` bytes.
@@ -38,6 +38,6 @@ In another terminal, check `/v1/models` and a bounded `/v1/chat/completions` cal
 ## Change and publication gates
 1. Run `python scripts/test_recipe.py`, `python -m compileall -q scripts`, `bash -n scripts/*.sh`, and `git diff --check`. These are static/CPU checks, not proof of a GPU load.
 2. Runtime/pin changes require a real bounded model completion and unload on a permitted GPU, with exact source/extension identities and overlay digest. No other person's GPU process may be stopped.
-3. Benchmark claims must name GPU, workload, sampling, concurrency, warmup and sample count, and per-stream versus aggregate metrics. The existing Sixcat v0.7.0 GB10 C=1 decode p50 of 19.28 tok/s is not universal. Do not claim the unmerged mixed-K branch or this new install script produced that prior result.
+3. Benchmark claims must name GPU, workload, sampling, concurrency, warmup and sample count, and per-stream versus aggregate metrics. The existing Sixcat v0.7.0 GB10 C=1 decode p50 of 19.28 tok/s is not universal. The RTX PRO 6000 8.00bpw result (C=1 decode p50 30.0 tok/s) came from a development build and native `/v1` server, not the pinned fork or these scripts; do not attribute it to them. Do not claim the unmerged mixed-K branch or this new install script produced that prior result.
 4. Do not commit weights, credentials, tokens, generated overlays or host-specific private paths. Do not fabricate data. Preserve model/TabbyAPI/ExLlamaV3 attribution.
 5. Publish only to the authorized public GitHub repo `vcruz305/K2-Horizon-MoVA-36B-A4B-EXL3`. Verify the default-branch commit and exact file inventory from GitHub before calling it shipped. Never create a private repo or a DGX-Spark-suffixed alternate.
